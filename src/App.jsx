@@ -1,35 +1,69 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState, useCallback } from 'react';
+import Camera from './components/Camera';
+import HeartRate from './components/HeartRate';
+import History from './components/History';
+import { uploadVideo, pollForResults } from './services/presageApi';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [status, setStatus] = useState('idle'); // idle | recording | processing | result | error
+  const [bpm, setBpm] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [measurements, setMeasurements] = useState([]);
+
+  const handleRecordingComplete = useCallback(async (videoBlob) => {
+    setStatus('processing');
+    try {
+      const uploadId = await uploadVideo(videoBlob);
+      const result = await pollForResults(uploadId);
+
+      const heartRate = result.heart_rate ?? result.pulse_rate ?? result.hr ?? 0;
+      setBpm(Math.round(heartRate));
+      setStatus('result');
+
+      setMeasurements(prev => [
+        {
+          bpm: Math.round(heartRate),
+          time: new Date().toLocaleTimeString(),
+        },
+        ...prev,
+      ]);
+    } catch (err) {
+      console.error('Measurement error:', err);
+      setErrorMessage(err.message || String(err));
+      setStatus('error');
+    }
+  }, []);
+
+  const handleRecordingStart = useCallback(() => {
+    setStatus('recording');
+  }, []);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="app">
+      <nav className="navbar">
+        <div className="nav-brand">♥ HeartRate</div>
+        <div className="nav-links">
+          <span className="nav-status">
+            Powered by <a href="https://presagetechnologies.com" target="_blank" rel="noreferrer">Presage</a>
+          </span>
+        </div>
+      </nav>
+
+      <main className="main-content">
+        <div className="measurement-section">
+          <Camera
+            onRecordingComplete={handleRecordingComplete}
+            onRecordingStart={handleRecordingStart}
+            disabled={status === 'processing'}
+          />
+          <HeartRate bpm={bpm} status={status} errorMessage={errorMessage} />
+        </div>
+
+        <History measurements={measurements} />
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default App;
